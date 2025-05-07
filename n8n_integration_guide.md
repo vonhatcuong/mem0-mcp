@@ -1,97 +1,166 @@
-# mem0-mcp Integration Guide for n8n
+# n8n.vbi-server.com Integration Guide for mem0-mcp
 
-This guide explains how to integrate the mem0-mcp server with [n8n](https://n8n.io/) workflow automation platform. Using n8n, you can create automated workflows that interact with your mem0-mcp server to store, retrieve, and process coding preferences.
+This guide explains how to integrate the mem0-mcp server with [n8n](https://n8n.io/) workflow automation platform, specifically n8n.vbi-server.com, using ngrok tunnels for remote access.
 
-## Prerequisites
+## Overview
 
--   mem0-mcp server running and accessible
--   n8n instance installed and running
--   Basic understanding of n8n workflows
+This document provides instructions on connecting n8n.vbi-server.com with your local mem0-mcp server through an ngrok tunnel.
 
-## Setup
+## Installation and Configuration
 
-### 1. Install n8n
+### 1. Install ngrok
 
-If you don't have n8n installed yet, you can install it using npm:
+If you haven't already installed ngrok, you can do so using Homebrew:
 
 ```bash
-npm install n8n -g
+brew install ngrok
 ```
 
-Or run it with Docker:
+### 2. Register and Configure ngrok
+
+> **Important**: ngrok requires an account and authentication before use.
+
+1. Register for an account at: https://dashboard.ngrok.com/signup
+
+2. After registering, get your authtoken from: https://dashboard.ngrok.com/get-started/your-authtoken
+
+3. Configure ngrok with your authtoken:
 
 ```bash
-docker run -it --rm \
-  --name n8n \
-  -p 5678:5678 \
-  -v ~/.n8n:/home/node/.n8n \
-  n8nio/n8n
+ngrok config add-authtoken YOUR_AUTH_TOKEN
 ```
 
-### 2. Create HTTP Request Nodes
+Replace `YOUR_AUTH_TOKEN` with the token you received from the ngrok website.
 
-The mem0-mcp server exposes a REST API at the `/mcp` endpoint. You can use n8n's HTTP Request node to interact with this API.
+### 3. Run the mem0-mcp Server with CORS Support
 
-#### Add Coding Preference
+```bash
+cd mem0-mcp
+source .venv/bin/activate
+python main_with_cors.py
+```
 
-1. Add an HTTP Request node
-2. Configure it as follows:
-    - **Method**: POST
-    - **URL**: `http://your-server:8080/mcp`
-    - **Headers**: Content-Type: application/json
-    - **Body**:
-        ```json
-        {
+### 4. Create an ngrok Tunnel to Your Local Server
+
+Open a new terminal and run:
+
+```bash
+./mem0-mcp/start_ngrok.sh
+```
+
+After running, ngrok will create a public URL, for example:
+
+```
+Forwarding  https://xxxx-xx-xx-xxx-xx.ngrok-free.app -> http://localhost:8080
+```
+
+### 5. Configure n8n to Use the ngrok URL
+
+#### 5.1 Important Endpoints
+
+With the ngrok URL being `https://xxxx-xx-xx-xxx-xx.ngrok-free.app` (replace with your actual URL):
+
+-   **SSE Endpoint**: `https://xxxx-xx-xx-xxx-xx.ngrok-free.app/sse`
+-   **Messages Endpoint**: `https://xxxx-xx-xx-xxx-xx.ngrok-free.app/messages/`
+
+#### 5.2 Available mem0-mcp Tools
+
+The mem0-mcp server provides 3 tools:
+
+1. **add_coding_preference**: Store code and programming patterns
+2. **get_all_coding_preferences**: Retrieve all saved code snippets
+3. **search_coding_preferences**: Search for relevant code snippets
+
+#### 5.3 Configuring HTTP Requests in n8n
+
+When creating an HTTP Request node in n8n, use the following templates:
+
+**Connecting to SSE**:
+
+-   URL: `https://xxxx-xx-xx-xxx-xx.ngrok-free.app/sse`
+-   Method: `GET`
+-   Headers:
+    -   `Accept`: `text/event-stream`
+
+**Calling add_coding_preference tool**:
+
+-   URL: `https://xxxx-xx-xx-xxx-xx.ngrok-free.app/messages/`
+-   Method: `POST`
+-   Body:
+
+```json
+{
+    "type": "tool_call",
+    "tool_call": {
+        "id": "add_preference_call",
+        "function": {
             "name": "add_coding_preference",
             "arguments": {
-                "title": "My Code Snippet",
-                "content": "console.log('Hello World');",
-                "language": "javascript",
-                "description": "Simple hello world example",
-                "tags": ["javascript", "beginner"]
+                "text": "// Sample JavaScript code\nfunction calculateSum(a, b) {\n  return a + b;\n}"
             }
         }
-        ```
+    }
+}
+```
 
-#### Get All Coding Preferences
+**Calling search_coding_preferences tool**:
 
-1. Add an HTTP Request node
-2. Configure it as follows:
-    - **Method**: POST
-    - **URL**: `http://your-server:8080/mcp`
-    - **Headers**: Content-Type: application/json
-    - **Body**:
-        ```json
-        {
-            "name": "get_all_coding_preferences",
-            "arguments": {}
-        }
-        ```
+-   URL: `https://xxxx-xx-xx-xxx-xx.ngrok-free.app/messages/`
+-   Method: `POST`
+-   Body:
 
-#### Search Coding Preferences
-
-1. Add an HTTP Request node
-2. Configure it as follows:
-    - **Method**: POST
-    - **URL**: `http://your-server:8080/mcp`
-    - **Headers**: Content-Type: application/json
-    - **Body**:
-        ```json
-        {
+```json
+{
+    "type": "tool_call",
+    "tool_call": {
+        "id": "search_call",
+        "function": {
             "name": "search_coding_preferences",
             "arguments": {
-                "query": "javascript function"
+                "query": "sum function"
             }
         }
-        ```
+    }
+}
+```
 
-### 3. Process the Response
+### 6. Important Notes
 
-Use n8n's JSON node to parse and process the response from the mem0-mcp server:
+-   ngrok URLs change each time you restart (free version)
+-   Register for ngrok Pro to get a static URL that doesn't change
+-   ngrok tunnels automatically close after 2 hours of inactivity (free version)
+-   Make sure to update the URL in your n8n configuration whenever the ngrok URL changes
 
-1. Add a JSON node after your HTTP Request node
-2. Connect the output of the HTTP Request node to the JSON node
-3. Configure the JSON node to extract specific fields from the response
+## Troubleshooting
+
+### ngrok Authentication Errors
+
+If you encounter this error:
+
+```
+ERROR: authentication failed: Usage of ngrok requires a verified account and authtoken.
+```
+
+Make sure you have:
+
+1. Registered for an account at https://dashboard.ngrok.com/signup
+2. Retrieved your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken
+3. Configured ngrok with the command `ngrok config add-authtoken YOUR_AUTH_TOKEN`
+
+### CORS Errors
+
+If you encounter CORS errors, check that:
+
+-   The mem0-mcp server is running with the `main_with_cors.py` file
+-   Headers in the HTTP Request are set correctly
+
+### Connection Errors
+
+If you can't connect:
+
+-   Verify the ngrok tunnel is still active
+-   Ensure the mem0-mcp server is running
+-   Check that the ngrok URL is being used correctly in your n8n configuration
 
 ## Example Workflows
 
@@ -113,38 +182,9 @@ This workflow sends a daily digest of stored code snippets:
 3. **Function Node**: Formats the snippets into a readable digest
 4. **Email Node**: Sends the digest via email
 
-## Environment Variables
-
-To make your workflows more flexible, use environment variables in n8n:
-
-1. Go to Settings > Variables
-2. Add variables like:
-    - `MEM0_MCP_URL`: URL of your mem0-mcp server
-    - `MEM0_API_KEY`: Your mem0 API key
-
-Then use these variables in your workflows:
-
-```
-{{$env.MEM0_MCP_URL}}/mcp
-```
-
-## Troubleshooting
-
--   **Connection issues**: Ensure your mem0-mcp server is accessible from n8n
--   **Authentication errors**: Verify your mem0 API key is correct
--   **404 errors**: Check the server endpoint URL is correct
--   **Parsing errors**: Ensure your JSON payloads are correctly formatted
-
-## Advanced Integration
-
-For more advanced integrations, you can:
-
-1. Create custom n8n nodes that directly interface with mem0-mcp
-2. Set up webhooks to trigger workflows when new coding preferences are added
-3. Use n8n's error handling features to retry failed requests
-
 ## Resources
 
 -   [n8n Documentation](https://docs.n8n.io/)
 -   [HTTP Request Node Documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/)
 -   [JSON Node Documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.json/)
+-   [ngrok Documentation](https://ngrok.com/docs/)
